@@ -102,6 +102,10 @@ The GRPC Service will expose an additional endpoint:
 - 'GetAllocatableResources`, which returns a single AllocatableResourcesResponse, enabling monitor applications to query for the allocatable set of resources available on the node.
 This endpoint will return error if the corresponding feature gate is disabled.
 
+NOTE:
+
+- `GetAllocatableResources` should only be used to evaluate [allocatable](https://kubernetes.io/docs/tasks/administer-cluster/reserve-compute-resources/#node-allocatable) resources on a node. If the goal is to evaluate free/unallocated resources it should be used in conjunction with the List() endpoint. The result obtained by `GetAllocatableResources` would remain the same unless the underlying resources exposed to kubelet change. This happens rarely but when it does (e.g. CPUs onlined/offlined, devices added/removed), client is expected to call `GetAlloctableResources` endpoint.
+
 The extended interface is shown in proto below:
 ```protobuf
 // PodResources is a service provided by the kubelet that provides information about the
@@ -165,6 +169,8 @@ message ContainerDevices {
 The implementation PR adds a suite of E2E tests which cover both the existing `List` endpoint already implemented in the podresources API and
 the new proposed `GetAllocatableResources` API.
 
+Add additional tests to prove that unhealthy devices are skipped as part of GetAllocatable and empty NUMA topology is not returned.
+
 ### Graduation Criteria
 
 #### Alpha
@@ -174,6 +180,8 @@ the new proposed `GetAllocatableResources` API.
 #### Alpha to Beta Graduation
 - [X] The new API is consumed by other public software components (e.g. NFD).
 - [X] No major bugs reported in the previous cycle.
+- [X] Ensure that empty NUMA topology is handled properly.
+- [X] Ensure that unhealthy devices are skipped in GetAllocatable.
 
 #### Beta to G.A Graduation
 - [X] Allowing time for feedback (1 year).
@@ -195,64 +203,87 @@ Kubelet will always be backwards compatible, so going forward existing plugins a
 ## Production Readiness Review Questionnaire
 ### Feature enablement and rollback
 
-* **How can this feature be enabled / disabled in a live cluster?**
+###### How can this feature be enabled / disabled in a live cluster?
   - [X] Feature gate (also fill in values in `kep.yaml`).
     - Feature gate name: `KubeletPodResourcesGetAllocatable`.
     - Components depending on the feature gate: kubelet, 3rd party consumers.
 
-* **Does enabling the feature change any default behavior?** No
-* **Can the feature be disabled once it has been enabled (i.e. can we rollback the enablement)?** Yes, through feature gates.
-* **What happens if we reenable the feature if it was previously rolled back?** The API becomes available again. The API is stateless, so no recovery is needed, clients can just consume the data.
-* **Are there any tests for feature enablement/disablement?** A e2e test will demonstrate that when the feature gate is disabled, the API returns the appropriate error code.
+###### Does enabling the feature change any default behavior?
+ No
+###### Can the feature be disabled once it has been enabled (i.e. can we roll back the enablement)?
+ Yes, through feature gates.
+###### What happens if we reenable the feature if it was previously rolled back?
+ The API becomes available again. The API is stateless, so no recovery is needed, clients can just consume the data.
+###### Are there any tests for feature enablement/disablement?
+ A e2e test will demonstrate that when the feature gate is disabled, the API returns the appropriate error code.
 
 ### Rollout, Upgrade and Rollback Planning
 
-* **How can a rollout fail? Can it impact already running workloads?** Kubelet may fail to start. The new API may report inconsistent data, or may cause the kubelet to crash.
-* **What specific metrics should inform a rollback?** `pod_resources_endpoint_errors_get_allocatable` - but only with feature gate enabled. Otherwise the API will always return a known error, giving a false negative signal.
-* **Were upgrade and rollback tested? Was upgrade->downgrade->upgrade path tested?** Not Applicable.
-* **Is the rollout accompanied by any deprecations and/or removals of features,  APIs, fields of API types, flags, etc.?** No.
+###### How can a rollout or rollback fail? Can it impact already running workloads
+ Kubelet may fail to start. The new API may report inconsistent data, or may cause the kubelet to crash.
+###### What specific metrics should inform a rollback?
+ `pod_resources_endpoint_errors_get_allocatable` - but only with feature gate enabled. Otherwise the API will always return a known error, giving a false negative signal.
+###### Were upgrade and rollback tested? Was the upgrade->downgrade->upgrade path tested?
+ Not Applicable.
+###### Is the rollout accompanied by any deprecations and/or removals of features, APIs, fields of API types, flags, etc.?
+ No.
 
 ### Monitoring requirements
-* **How can an operator determine if the feature is in use by workloads?**
+###### How can an operator determine if the feature is in use by workloads?
   - Look at the `pod_resources_endpoint_requests_get_allocatable` metric exposed by the kubelet.
+
+###### How can someone using this feature know that it is working for their instance?
   - Clients are connected to the podresources unix socket, for example  bychecking which containers mount the podresources socket path.
-* **What are the SLIs (Service Level Indicators) an operator can use to determine the health of the service?**
+###### What are the reasonable SLOs (Service Level Objectives) for the enhancement?
+ Not Applicable.
+
+###### What are the SLIs (Service Level Indicators) an operator can use to determine the health of the service?
   - [X] Metrics
     - Metric name: `pod_resources_endpoint_requests_total`, `pod_resources_endpoint_requests_list`, `pod_resources_endpoint_requests_get_allocatable`, `pod_resources_endpoint_errors_list`, `pod_resources_endpoint_errors_get_allocatable`
     - Components exposing the metric: kubelet
 
-* **What are the reasonable SLOs (Service Level Objectives) for the above SLIs?** N/A.
-* **Are there any missing metrics that would be useful to have to improve observability if this feature?** As part of this feature enhancement, per-API-endpoint resources metrics are being added; to observe this feature the `pod_resources_endpoint_requests_get_allocatable` metric should be used. We will also add error counting metrics to improve the observability of the API.
+###### Are there any missing metrics that would be useful to have to improve observability of this feature?
+As part of this feature enhancement, per-API-endpoint resources metrics are being added; to observe this feature the `pod_resources_endpoint_requests_get_allocatable` metric should be used. We will also add error counting metrics to improve the observability of the API.
 
 
 ### Dependencies
 
-* **Does this feature depend on any specific services running in the cluster?** Not applicable.
+###### Does this feature depend on any specific services running in the cluster?
+ Not applicable.
 
 ### Scalability
 
-* **Will enabling / using this feature result in any new API calls?** No.
-* **Will enabling / using this feature result in introducing new API types?** No.
-* **Will enabling / using this feature result in any new calls to cloud provider?** No.
-* **Will enabling / using this feature result in increasing size or count of the existing API objects?** No.
-* **Will enabling / using this feature result in increasing time taken by any operations covered by [existing SLIs/SLOs][]?** No. Feature is out of existing any paths in kubelet.
-* **Will enabling / using this feature result in non-negligible increase of resource usage (CPU, RAM, disk, IO, ...) in any components?** DDOSing the API can lead to resource exhaustion. It is planned to be addressed as part of G.A.
+###### Will enabling / using this feature result in any new API calls?
+ No.
+###### Will enabling / using this feature result in introducing new API types?
+ No.
+
+###### Will enabling / using this feature result in any new calls to the cloud provider?
+ No.
+###### Will enabling / using this feature result in increasing size or count of the existing API objects?
+ No.
+###### Will enabling / using this feature result in increasing time taken by any operations covered by existing SLIs/SLOs?
+ No. Feature is out of existing any paths in kubelet.
+###### Will enabling / using this feature result in non-negligible increase of resource usage (CPU, RAM, disk, IO, ...) in any components?
+ DDOSing the API can lead to resource exhaustion. It is planned to be addressed as part of G.A.
 Feature only collects data when requests comes in, data is then garbage collected. Data collected is proportional to the number of pods on the node.
 
 ### Troubleshooting
 
-* **How does this feature react if the API server and/or etcd is unavailable?**: No effect.
-* **What are other known failure modes?** feature gate disabled: the API will always return a well-known error. In normal operation, the API is expected to never return error and always return a valid response, because it utilizes internal kubelet data which is always available. Bugs may lead to the API to return unexpected errors, or to return inconsistent data. Consumers of the API should treat unexpected errors as bugs of this API.
-* **What steps should be taken if SLOs are not being met to determine the problem?** N/A
+###### How does this feature react if the API server and/or etcd is unavailable?
+ No effect.
+###### What are other known failure modes?
+ feature gate disabled: the API will always return a well-known error. In normal operation, the API is expected to never return error and always return a valid response, because it utilizes internal kubelet data which is always available. Bugs may lead to the API to return unexpected errors, or to return inconsistent data. Consumers of the API should treat unexpected errors as bugs of this API.
+###### What steps should be taken if SLOs are not being met to determine the problem?
+ Not applicable.
 
-[supported limits]: https://git.k8s.io/community//sig-scalability/configs-and-limits/thresholds.md
-[existing SLIs/SLOs]: https://git.k8s.io/community/sig-scalability/slos/slos.md#kubernetes-slisslos
 
 ## Implementation History
 
 - 2021-02-02: KEP extracted from [previous iteration](https://github.com/kubernetes/enhancements/tree/master/keps/sig-node/2043-pod-resource-concrete-assigments)
 - 2021-02-04: KEP polished, added feature gate, clarified the graduation criteria.
 - 2021-02-08: KEP updated adding per-specific-endpoint metrics to the podresources API and clarifying failure modes.
+- 2021-09-02: KEP updated to explicitly clarify the behavior of `GetAllocatableResources` and graduate to Beta in 1.23.
 
 ## Alternatives
 
