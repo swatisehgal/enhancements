@@ -14,6 +14,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Proposed API](#proposed-api)
+  - [Handling guaranteed pods with non-integral requests](#handling-guaranteed-pods-with-non-integral-requests)
   - [Test Plan](#test-plan)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha](#alpha)
@@ -31,6 +32,7 @@
 - [Implementation History](#implementation-history)
 - [Alternatives](#alternatives)
   - [Add a new endpoint](#add-a-new-endpoint)
+  - [Alternative solution to introducing <code>exclusive_cpu_ids</code>](#alternative-solution-to-introducing-)
 <!-- /toc -->
 
 ## Release Signoff Checklist
@@ -144,6 +146,7 @@ message ContainerResources {
     repeated ContainerDevices devices = 2;
     repeated int64 cpu_ids = 3;
     repeated ContainerMemory memory = 4;
+    repeated int64 exclusive_cpu_ids = 5;
 }
 
 // Topology describes hardware topology of the resource
@@ -163,7 +166,11 @@ message ContainerDevices {
     TopologyInfo topology = 3;
 }
 ```
-
+### Handling guaranteed pods with non-integral requests
+One of the primary goals of recent enhancements of PodResource API is to allow it to enable node monitoring agents to know the allocatable compute resources on a node, in order to calculate the node compute resource utilization. Pods with same non-integral CPU request and limit belongs to Guaranteed QoS class but
+obtains CPUs from the shared pool. It is therefore important to be able to distibuish such pods from the pods which have been exclusively
+allocated CPUs in order to perform proper accounting. So, we introduce a field `exclusive_cpu_ids` that provides information of the exclusive CPUs allocated to a pod. The client can then compare `exclusive_cpu_ids` with `cpu_ids` to determine if CPUs are exclusively allocated or not. For pods that obtain CPUs from
+the shared pool, `exclusive_cpu_ids` field would be empty.
 
 ### Test Plan
 
@@ -183,6 +190,7 @@ Add additional tests to prove that unhealthy devices are skipped as part of GetA
 - [X] No major bugs reported in the previous cycle.
 - [X] Ensure that empty NUMA topology is handled properly.
 - [X] Ensure that unhealthy devices are skipped in GetAllocatable.
+- [X] Ability to account for available CPUs appropriately taking into consideration that guaranteed pods can belong to shared pool.
 - [X] External clients using this capability in their solutions
     Topology aware Scheduling is one of the primary use cases of GetAllocatableResource podresource endpoint. As part of this initiative an exporter populates CRs per node to expose the information of resources available per NUMA. Pod Resource API `List` and `GetAllocatableResources` API endpoints are used to obtain resource allocation of running pods along with the underlying hardware topology (NUMA) information. Topology aware scheduler can be configured such that users can create custom exporters or use already existing exporters to expose the NodeResourceTopology information as CRs and then [Topology aware Scheduler](https://github.com/kubernetes-sigs/scheduler-plugins/tree/master/pkg/noderesourcetopology) uses this information to make a NUMA aware placement decision leading to the reduction of occurrence of Topology affinity Errors highlighted in the issue [here](https://github.com/kubernetes/kubernetes/issues/84869).
     Examples of two such exporters are:
@@ -300,3 +308,10 @@ Feature only collects data when requests comes in, data is then garbage collecte
   * Requires the client to consume two APIs
   * This work nicely fits in the boundaries and purpose of the podresources API
   * The changes proposed in this KEP are very low-risk and backward compatible
+
+### Alternative solution to introducing `exclusive_cpu_ids`
+Instead adding a new field `exclusive_cpu_ids` we can expose a boolean field called `is_exclusive` as can be seen in the PR here: https://github.com/kubernetes/kubernetes/pull/102989.
+* Pros:
+Simpler for client to evaluate if a pod is obtaining exclusive CPUs or not.
+* Cons:
+  * Currently CPU Manager supports two pools: shared and exclusive but if in the future the CPU Manager in Kubelet evolves to support a CPU pool that allows both shared and exclusive CPUs, it wouldn't be ideal to have such a field. It might cause confusion and update-getallocatable-to-beta would have to explicitly clarify semantic of the value returned as part of this field making it a less ideal solution.
