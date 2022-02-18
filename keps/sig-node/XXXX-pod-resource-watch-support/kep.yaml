@@ -1,0 +1,55 @@
+title: Kubelet endpoint for pod resource assignment
+kep-number: XXXX
+authors:
+  - "@fromanirh"
+  - "@alexeyperevalov"
+  - "@swatisehgal"
+owning-sig: sig-node
+participating-sigs: []
+status: implementable
+creation-date: "2022-02-18"
+reviewers:
+  - "@derekwaynecarr"
+  - "@renaudwastaken"
+  - "@klueska"
+approvers:
+  - "@sig-node-leads"
+prr-approvers: []
+see-also:
+  - "keps/sig-node/606-compute-device-assignment/"
+  - "keps/sig-node/2403-pod-resources-allocatable-resources/"
+replaces: []
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+# latest-milestone: "v1.21"
+latest-milestone: "v1.25"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+# TODO: Figure out how to capture the milestones for KubeletPodResourcesWatchSupport support
+milestone:
+  alpha: "v1.25"
+  beta: "v1.26"
+  stable: "v1.28"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: "KubeletPodResourcesWatchSupport"
+    components:
+      - kubelet
+disable-supported: false
+
+# The following PRR answers are required at beta release
+metrics:
+  - pod_resources_endpoint_requests_total
+  - pod_resources_endpoint_requests_list
+  - pod_resources_endpoint_requests_get_allocatable
+  - pod_resources_endpoint_errors_list
+  - pod_resources_endpoint_errors_get_allocatable
+  - pod_resources_endpoint_requests_list_and_watch
+  - pod_resources_endpoint_requests_list_and_watch_allocatable_resources
