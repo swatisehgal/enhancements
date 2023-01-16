@@ -1,5 +1,5 @@
 title: Node Topology Manager
-kep-number: 693
+kep-number: 3741
 authors:
   - "@ConnorDoyle"
   - "@balajismaniam"
@@ -25,6 +25,8 @@ see-also:
   - "/keps/sig-node/2625-cpumanager-policies-thread-placement"
   - "/keps/sig-node/3573-device-plugin/kep.yaml"
   - "/keps/sig-node/1769-memory-manager"
+replaces:
+  - "/keps/sig-node/693-topology-manager"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: stable
